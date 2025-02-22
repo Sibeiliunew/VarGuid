@@ -1,6 +1,3 @@
-# library(plotly) # 3D plot
-# library(ggplot2)
-#install.packages("/Volumes/Extreme SSD/heteroscedasticity/R code/cvxclustr_1.1.0.tar.gz", repos = NULL, type = "source")
 library(cvxclustr) # convex clustering
 
 library(randomForestSRC)
@@ -8,38 +5,22 @@ library(randomForestSRC)
 # convex clustering
 #####################
 
-covx <- function(x, knn = 9, phi = 0.46,  
-                 gamma = c(seq(0,8.56, length.out=5))){ # knn if wants knn kernel
+covx <- function(x, Knn = 9, phi = 0.46,  
+                 gamma = c(seq(0,8.56, length.out=5))){ # Knn if wants Knn kernel
   x <- as.data.frame(x)
   nums <- unlist(lapply(x, is.numeric))  
   X <- t(scale(as.matrix(x[,nums])))
   n <- ncol(X)
   ## Pick some weights and a sequence of regularization parameters.
-  w <- kernel_weights(X,phi)
-  if (!is.null(knn)){
-    k <- knn
-    w <- knn_weights(w,k,n) } 
+  w <- cvxclustr::kernel_weights(X,phi)
+  if (!is.null(Knn)){
+    k <- Knn
+    w <- cvxclustr::knn_weights(w,k,n) } 
   ## Perform clustering
-  list(sol = cvxclust(X,w,gamma), w = w, x = x[,nums], x.all = x, gamma = gamma, knn = knn )
+
+  list(sol = cvxclustr::cvxclust(X,w,gamma,nu = 1/nrow(x)), w = w, x = x[,nums], x.all = x, gamma = gamma, Knn = Knn )
 }
-#####################
-# plot path
-#####################
-plotpath <- function (sol){ 
-  nGamma <- sol$nGamma
-  df.paths <- data.frame(x=c(),y=c(), group=c())
-  for (j in 1:nGamma) {
-    pcs <- sol$U[[j]]
-    x <- pcs[1,]
-    y <- pcs[2,]
-    df <- data.frame(x.1=pcs[1,], x.2=pcs[2,], group=1:length(x))
-    df.paths <- rbind(df.paths,df)
-  }
-  data_plot <- ggplot(data=df.paths,aes(x=x.1,y=x.2))
-  data_plot <- data_plot + geom_path(aes(group=group),colour='grey30',alpha=0.5)
-  data_plot <- data_plot + xlab('pcs.1') + ylab('pcs.2')
-  data_plot + theme_bw()
-}
+
 #####################################################
 # fake random effect from cluster object
 ######################################################
@@ -48,8 +29,8 @@ fakez <- function(obj){      ### extract clusters from a convex object
   w <- obj$w
   n <- length(sol$U[[1]][1,])
   lapply(1:sol$nGamma,function(i){
-    A <- create_adjacency(sol$V[[i]],w,n)
-    find_clusters(A)
+    A <- cvxclustr::create_adjacency(sol$V[[i]],w,n)
+    cvxclustr::find_clusters(A)
   })
 }
 
@@ -86,17 +67,14 @@ dat.test[,nums] <- scale(x.new[,nums])
 mlm <- lapply(1:length(dat.train),function(i){
   tryCatch({
     if (length(rdef.all[[i]]$size)>(length(y.obj)-ncol(x.new)-1)) {
-      return(NA)} else {if (length(rdef.all[[i]]$size)==1){
-        mod.rlm <- lm(as.formula(paste("y~",paste(colnames(dat.test[,nums]),collapse = "+"))), 
+      return(NA)} else {
+        mod.rlm <- stats::lm(stats::as.formula(paste("y~",paste(colnames(dat.test[,nums]),collapse = "+"))), 
                       dat.train[[i]])
-      } else{
-        mod.rlm <- lmer(as.formula(paste("y~",paste(colnames(dat.test[,nums]),collapse = "+"),"+(1 | z)+(0)")), 
-                        dat.train[[i]])}
         center <- cent(dat = obj$x,cluster = rdef.all[[i]]$cluster)
         
         dat.test$z <- as.factor(as.character(clusters(x.new[,nums],center)))
         
-        yhat.rlm <- predict(mod.rlm,as.matrix(dat.test))
+        yhat.rlm <- stats::predict(mod.rlm,as.matrix(dat.test))
         sqrt(mean((y.new-yhat.rlm)^2)) 
       }}, error=function(e){cat("ERROR :",conditionMessage(e), "\n")})
 }
@@ -106,31 +84,27 @@ list(rmse = unlist(mlm),q = unlist(q), gamma = obj$gamma)
 #####################################################
 # decide final model after optimizing gamma and phi
 ######################################################
-fnmod <- function(dat.x,dat.y,knn = 10, gamma = c(seq(0,8.56, length.out=5)), phi = 0.45)
+fnmod <- function(dat.x,dat.y,Knn = 10, gamma = c(seq(0,8.56, length.out=5)), phi = 0.45)
 {  data <- as.data.frame(dat.x)
 nums <- unlist(lapply(data, is.numeric))  
-obj <- covx(as.matrix(dat.x[,nums]),knn = knn,
+obj <- covx(x = as.matrix(dat.x[,nums]),Knn = Knn,
             gamma = gamma,phi = phi)
 w <- obj$w
 n <- dim(obj$sol$U[[1]])[2]
-A <- create_adjacency(obj$sol$V[[1]],w,n)
-rdef.all <- find_clusters(A)
+A <- cvxclustr::create_adjacency(obj$sol$V[[1]],w,n)
+rdef.all <- cvxclustr::find_clusters(A)
 data$z <- as.factor(as.character(rdef.all$cluster))
 data$y <- dat.y
-#if ((length(unique(data$z))==1)|(length(unique(data$z))==nrow(data))){linear <- lm(as.formula(paste("y~",paste(colnames(as.data.frame(dat.x)),collapse = "+"))),data)} else{
-#  linear <- lmer(as.formula(paste("y~",paste(colnames(as.data.frame(dat.x)),collapse = "+"),"+(1 | z)+(0)")),data)}
 if (dim(dat.x)[2] == 1) dat.x <- cbind(dat.x,dat.x)
 center <- cent(dat = dat.x,cluster = rdef.all$cluster)
 list( clust = obj,
-    #  linear = linear, 
       data = data,
-    #  x = dat.x,
       center = center)
 }
 #####################################################
 # prediction using final model 
 ######################################################
-fnpred <- function(mod,lmvo,newdata){
+predict.varGuid <- function(mod,lmvo,newdata, redDim = FALSE){
   newdata <- as.matrix(newdata)
   dat.test <- as.data.frame(newdata)
   nums <- unlist(lapply(dat.test, is.numeric))  
@@ -146,58 +120,59 @@ fnpred <- function(mod,lmvo,newdata){
 
   if (length(lmvo$obj.OLS)==0){
     lmvo$obj.OLS <- lmvo$obj.lasso
-    yhat0 <- yhat <- yhat2 <- predict(lmvo$obj.varGuid,as.matrix(newdata))
-    yhat0b <- yhatb <- yhat2b <- predict( lmvo$obj.OLS,as.matrix(newdata))
+    yhat0 <- yhat <- yhat2 <- glmnet::predict.glmnet(lmvo$obj.varGuid,as.matrix(newdata))
+    yhat0b <- glmnet::predict.glmnet( lmvo$obj.OLS,as.matrix(newdata))
   } else {
-    yhat0 <- yhat <- yhat2 <- predict(lmvo$obj.varGuid,as.data.frame(newdata))
-    yhat0b <- yhatb <- yhat2b <- predict( lmvo$obj.OLS,as.data.frame(newdata))
+    yhat0 <- yhat <- yhat2 <- stats::predict(lmvo$obj.varGuid,as.data.frame(newdata))
+    yhat0b <- stats::predict( lmvo$obj.OLS,as.data.frame(newdata))
+  }
+   if (redDim == TRUE) {
+    datrf <- data.frame(Y = c(lmvo$obj.varGuid$residuals), 
+                              subset(lmvo$obj.varGuid$model, select = -c(1,ncol(lmvo$obj.varGuid$model))) )
+   } else {
+      datrf <- data.frame(Y = c(lmvo$obj.varGuid$residuals), 
+                          lmvo$X )
+   }
+    rfo <- randomForestSRC::rfsrc(Y~., data= datrf)
+    mod$data$y <- rfo$predicted.oob
+    ycenter <- stats::aggregate(y~z,data = mod$data,mean) 
+   #yhat <- yhat0 + ycenter$y[match(dat.test$z,ycenter$z)]   
+    resd <- abs(lmvo$obj.varGuid$residuals)-sqrt(abs(lmvo$res$fitted.values))
+    mod$data$y[which(resd<0)] <- 0
+    ycenter <- stats::aggregate(y~z,data = mod$data,mean) 
+    testrf <- randomForestSRC::predict.rfsrc(rfo,as.data.frame(newdata))
+    yhat2 <- c(yhat0) + c(testrf$predicted)
+    
+returnd <- data.frame(VarGuidOriginal = c(yhat0),
+                  #  VarGuid1 = c(yhat),
+                     VarGuid = c(yhat2))
+if (length(lmvo$obj.OLS)==0){ 
+  returnd$Lasso <- c(yhat0b)
+} else {
+  returnd$OLS <- c(yhat0b)
+}
+       
+returnd
+}
+
+ymodv <- function(obj, nu = c(seq(0,9, length.out=5))){
+  dat <- obj$obj.varGuid$model
+  
+  
+  if (ncol(dat) == 3){
+    dat <- cbind( obj$obj.varGuid$model[,1],
+                 obj$X[,order(stats::cor(dat[,2],obj$X),decreasing = TRUE)[1:min(ncol(obj$X),5)]],
+                  obj$obj.varGuid$model[,ncol(obj$obj.varGuid$model)])
+    dat <- as.data.frame(dat)
   }
   
- # if (!((length(unique(mod$data$z))==1)|(length(unique(mod$data$z))==nrow(mod$data)))) {
-    datrf <- data.frame(Y = c(lmvo$obj.varGuid$residuals), #lmvo$obj.varGuid$model[,1] ,
-                              subset(lmvo$obj.varGuid$model, select = -c(1,ncol(lmvo$obj.varGuid$model))) )
-    if (dim(datrf)[2] == 1){
-      datrf <- data.frame(Y = c(lmvo$obj.varGuid$residuals), #lmvo$obj.varGuid$model[,1] ,
-                          lmvo$X )
-    }
-    rfo <- rfsrc(Y~., data= datrf)
-    
-   # rfo$predicted.oob - lmvo$obj.varGuid$model[,1]
-    
-    mod$data$y <- rfo$predicted.oob
-    ycenter <- aggregate(y~z,data = mod$data,mean) 
-    
-    
-    yhat <- yhat0 + ycenter$y[match(dat.test$z,ycenter$z)]   
-    yhatb <- yhat0b + ycenter$y[match(dat.test$z,ycenter$z)]   
-    
-    resd <- abs(lmvo$obj.varGuid$residuals)-sqrt(abs(lmvo$res$fitted.values))
-   # mod$data$y <- abs(resd)*sign(lmvo$obj.varGuid$residuals)
-    mod$data$y[which(resd<0)] <- 0
-    ycenter <- aggregate(y~z,data = mod$data,mean) 
-    yhat2 <- yhat0 + ycenter$y[match(dat.test$z,ycenter$z)]   
-    yhat2b <- yhat0b + ycenter$y[match(dat.test$z,ycenter$z)]   
- # }
-
-  data.frame(
-       yhatVarGuidOriginal = yhat0,
-       yhatVarGuid1 = yhat,
-       yhatVarGuid2 = yhat2,
-       yhatVarGuid3 = yhatb,
-       yhatVarGuid4 = yhat2b,
-       yhatOLS = yhat0b)
-}
-#sm2 <- summary(mod.rlm)
-#print(sm2, digits=2, corr=T)   
-ymodv <- function(obj, knn = 10, gamma = c(seq(0,8.56, length.out=5)), phi = 0.45){
-  dat <- obj$obj.varGuid$model
+  colnames(dat)[1] <- "Y"
   colnames(dat)[ncol(dat)] <- "weights"
   
   mod <- fnmod( dat.x=subset(dat, select = -c(Y,weights)),
-              # dat.x=data.frame(datY=dat$Y,resY=o$obj.varGuid$residuals,varhY=o$res$fitted.values),
                dat.y=dat$Y,
-               knn = knn,
-               gamma = gamma, phi = phi)
+               Knn = 10,
+               gamma = nu, phi = 0.45)
   mod
 }
 

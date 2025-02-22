@@ -1,77 +1,65 @@
 \name{ymodv}
 \alias{ymodv}
-%- Also NEED an '\alias' for EACH other topic documented here.
 \title{
-A Capitalized Title (ideally limited to 65 characters)
+Convex Clustering for Creating Artificial Grouping Effects to Capture Nonlinear Relationships
 }
 \description{
-%%  ~~ A concise (1-5 lines) description of what the function does. ~~
+The function implements convex clustering for creating artificial grouping effects for the object from the \code{lmv()} function.   The convex clustering algorithm was directly imported from the \pkg{cvxclustr}
+  package.  Use the command \code{package?cvxclustr} for more information.
 }
 \usage{
-ymodv(obj, knn = 10, gamma = c(seq(0, 8.56, length.out = 5)), phi = 0.45)
+ymodv(obj, nu = c(seq(0,9, length.out=5)))
 }
 %- maybe also 'usage' for other objects documented here.
 \arguments{
-  \item{obj}{
-%%     ~~Describe \code{obj} here~~
+
+  \item{obj}{Object from the \code{lmv()} function. }
+
+  \item{nu}{Parameter to control the number of artificial groups. This is the same as the \code{gamma} argument from the \code{cvxclust()} function from the \pkg{cvxclustr}
+  package. }
+
+ 
 }
-  \item{knn}{
-%%     ~~Describe \code{knn} here~~
-}
-  \item{gamma}{
-%%     ~~Describe \code{gamma} here~~
-}
-  \item{phi}{
-%%     ~~Describe \code{phi} here~~
-}
-}
-\details{
-%%  ~~ If necessary, more details than the description above ~~
-}
+
 \value{
-%%  ~Describe the value returned
-%%  If it is a LIST, use
-%%  \item{comp1 }{Description of 'comp1'}
-%%  \item{comp2 }{Description of 'comp2'}
-%% ...
+An object of class \code{(varGuid)} with the following
+  components:
+  \item{clust}{A list in which \code{sol} contains the output from the \code{cvxclust()} function, along with other parameters used as arguments for \code{cvxclust()}.}
+  \item{data}{A dataframe from the clustering algorithm, where \code{z} contains the grouping factor.}
+  \item{cent}{Centers of the artificial groups.}
+
 }
 \references{
-%% ~put references to the literature/web site here ~
+Liu S. and Lu M. (2025) Variance guided regression models for heteroscedastic data (under review)
 }
 \author{
-%%  ~~who you are~~
-}
-\note{
-%%  ~~further notes~~
-}
-
-%% ~Make other sections like Warning with \section{Warning }{....} ~
-
-\seealso{
-%% ~~objects to See Also as \code{\link{help}}, ~~~
+Sibei Liu (Maintainer,<sxl4188@miami.edu>) and Min Lu
 }
 \examples{
-##---- Should be DIRECTLY executable !! ----
-##-- ==>  Define data, use random,
-##--	or standard data sets, see data().
+\donttest{
+library(varGuid)
+data(cobra2d, package = "varGuid")
+dat <- cobra2d
+tid <- sample(1:nrow(dat), 200)
+train <- dat[-tid,]
+test <- dat[tid,]
+yid <- which(colnames(dat) == "y")
 
-## The function is currently defined as
-function (obj, knn = 10, gamma = c(seq(0, 8.56, length.out = 5)), 
-    phi = 0.45) 
-{
-    dat <- obj$obj.varGuid$model
-    colnames(dat)[ncol(dat)] <- "weights"
-    mod <- fnmod(dat.x = subset(dat, select = -c(Y, weights)), 
-        dat.y = dat$Y, knn = knn, gamma = gamma, phi = phi)
-    mod
-  }
+########### Obtain linear coefficients using the IRLS algorithm:
+
+o <- lmv(X = train[,-yid] , Y = train[,yid], lasso = FALSE) 
+o$obj.varGuid.coef$HC3 ## coefficient estimator from VarGuid regression
+summary(o$obj.OLS) ## coefficient estimator from OLS regression
+
+########### Step 2: Create artificial grouping effect for nonlinear prediction:
+
+# create artificial grouping effects
+y.obj <- ymodv(obj = o, nu = c(seq(90,190, length.out=5))) 
+
+# outcome prediction on new data
+pred <- predict.varGuid(mod=y.obj,lmvo = o,newdata = test[,-yid]) 
+
+# RMSE
+sqrt(colMeans((  matrix(replicate(ncol(pred),test[,yid]),ncol=ncol(pred))-pred)^2, na.rm = TRUE)) 
 }
-% Add one or more standard keywords, see file 'KEYWORDS' in the
-% R documentation directory (show via RShowDoc("KEYWORDS")):
-% \keyword{ ~kwd1 }
-% \keyword{ ~kwd2 }
-% Use only one keyword per line.
-% For non-standard keywords, use \concept instead of \keyword:
-% \concept{ ~cpt1 }
-% \concept{ ~cpt2 }
-% Use only one concept per line.
+}
